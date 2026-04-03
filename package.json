@@ -1,13 +1,15 @@
 {
 	"scripts": {
 		"test": "jest --runInBand",
-		"evm": "node -r ts-node/register src/service/AlchemyTxService.ts"
+		"evm": "ts-node src/service/AlchemyTxService.ts"
 	},
 	"dependencies": {
 		"@alch/alchemy-sdk": "^1.2.0",
+		"better-sqlite3": "^12.8.0",
 		"dotenv": "^17.4.0"
 	},
 	"devDependencies": {
+		"@types/better-sqlite3": "^7.6.13",
 		"@types/jest": "^30.0.0",
 		"jest": "^30.3.0",
 		"o1js": "^2.14.0",

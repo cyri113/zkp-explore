@@ -46,10 +46,12 @@ describe('AlchemyTxService', () => {
         pageKey: undefined,
       });
 
-    const txs = await fetchAllTransactions('fake-key', '0xAbc');
+    const result = await fetchAllTransactions('fake-key', '0xAbc');
 
-    expect(txs).toHaveLength(1);
-    expect(txs[0].hash).toBe('0x1');
+    expect(result.transactions).toHaveLength(1);
+    expect(result.transactions[0].hash).toBe('0x1');
+    expect(result.incomingPageKey).toBeUndefined();
+    expect(result.outgoingPageKey).toBeUndefined();
     expect(getAssetTransfers).toHaveBeenCalledTimes(2);
   });
 });

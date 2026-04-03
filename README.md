@@ -109,6 +109,77 @@ const txs = await fetchAllTransactions(apiKey, '0xa23f...', 'eth-mainnet', 2);
 console.log(txs); // AssetTransfer[]
 ```
 
+## Database persistence
+
+Transactions are automatically persisted to a local SQLite database (`data/transactions.db`) for resumable downloads. The database stores raw transaction data dumps without any schema constraints, making it chain-agnostic.
+
+### Resume mechanism
+
+The service implements **checkpoint-based resume** to efficiently continue from where it left off:
+
+1. **Checkpoint saving**: After each fetch, the latest pagination token (`pageKey`) for each direction (incoming/outgoing) is saved to the database.
+2. **Checkpoint resume**: On the next run (without `--reset`), the service loads the saved pageKeys and continues fetching from that point instead of re-fetching already-processed pages.
+3. **Efficient pagination**: This avoids wasting API quota on pages that were already fetched.
+4. **Parallel optimization**: The concurrent direction fetching (via `Promise.all()`) is preserved during resume.
+
+**Example flow:**
+```
+Run 1: --reset, maxPages=1    → Fetch 2 pages (1 per direction) → Save checkpoints → Store 101 txs
+Run 2: maxPages=2             → Load checkpoints, resume from page 2 → Fetch 4 more pages → +200 txs → Total 301
+Run 3: maxPages=3, --reset    → Clear checkpoints, restart from page 1 → Fetch 6 pages → Store 301 txs
+```
+
+### CLI with persistence
+
+```bash
+# First run: download and store transactions (saves checkpoints)
+pnpm evm 0xaea46A60368A7bD060eec7DF8CBa43b7EF41Ad85 eth-mainnet 5
+
+# Subsequent runs: automically resume from checkpoint
+pnpm evm 0xaea46A60368A7bD060eec7DF8CBa43b7EF41Ad85 eth-mainnet 5
+
+# Reset and start from the beginning (clears checkpoints)
+pnpm evm 0xaea46A60368A7bD060eec7DF8CBa43b7EF41Ad85 eth-mainnet 5 --reset
+```
+
+**Features:**
+- Automatic deduplication: duplicate transactions are skipped on insert (by hash).
+- Checkpoint-based resume: picks up from where last fetch ended, avoiding duplicate API calls.
+- Multi-address support: separate storage and checkpoints per address/network pair.
+- Chain-agnostic: stores raw JSON dumps without schema constraints.
+- WAL mode: write-ahead logging for safe concurrent access.
+
+### Database operations
+
+```ts
+import { TransactionDb, RawTransaction } from './src/service/TransactionDb';
+
+const db = new TransactionDb();
+
+// Insert raw transactions (duplicates are skipped)
+// Specify the key field used for deduplication (e.g., 'hash' for EVM)
+const inserted = db.insertTransactions(address, network, transactions, 'hash');
+
+// Get all stored transactions for an address
+const txs: RawTransaction[] = db.getTransactions(address, network);
+
+// Get count
+const count = db.getTransactionCount(address, network);
+
+// Save/get checkpoints (pagination tokens for resume)
+db.saveCheckpoint(address, network, 'incoming', pageKey);
+const pageKey = db.getCheckpoint(address, network, 'incoming');
+
+// Clear transactions for specific address/network
+db.clearTransactions(address, network);
+
+// Clear checkpoints for specific address/network (used by --reset)
+db.clearCheckpoints(address, network);
+
+// Close connection
+db.close();
+```
+
 ## Testing
 
 ```bash
@@ -125,3 +196,4 @@ Test files:
 - `HashTree.addLeaf` enforces strictly increasing `sortKey` and unique `id`.
 - `fromJSON` rebuilds the tree from leaves and restores snapshots.
 - `fetchAllTransactions` deduplicates tx hashes and sorts by block number.
+- Database persistence works seamlessly with the concurrent direction fetching optimization.

@@ -4,7 +4,7 @@ import { initializeAlchemy, Network, AssetTransfersCategory, AssetTransfersOrder
 export type AssetTransfer = {
   hash: string;
   from: string;
-  to: string;
+  to: string | null;
   value: string;
   asset: string | null;
   category: string;
@@ -30,9 +30,14 @@ export async function fetchAllTransactions(
   apiKey: string,
   address: string,
   network = 'eth-mainnet',
-  maxPages = 0 // 0 = no limit, >0 = max pages per direction
-): Promise<AssetTransfer[]> {
-  console.error(`[Alchemy] fetching transactions for ${address} on ${network}${maxPages > 0 ? ` (max ${maxPages} pages)` : ''}`);
+  maxPages = 0, // 0 = no limit, >0 = max pages per direction
+  incomingPageKey?: string, // starting page key for incoming
+  outgoingPageKey?: string // starting page key for outgoing
+): Promise<{ transactions: AssetTransfer[]; incomingPageKey?: string; outgoingPageKey?: string }> {
+  console.error(
+    `[Alchemy] fetching transactions for ${address} on ${network}${maxPages > 0 ? ` (max ${maxPages} pages)` : ''}${incomingPageKey || outgoingPageKey ? ' (resuming from checkpoint)' : ''
+    }`
+  );
 
   const alchemy = initializeAlchemy({ apiKey, network: getNetwork(network) });
 
@@ -43,8 +48,8 @@ export async function fetchAllTransactions(
     AssetTransfersCategory.ERC1155,
   ];
 
-  const mergeTransfers = async (filters: { fromAddress?: string; toAddress?: string }) => {
-    let pageKey: string | undefined = undefined;
+  const mergeTransfers = async (filters: { fromAddress?: string; toAddress?: string }, startingPageKey?: string) => {
+    let pageKey: string | undefined = startingPageKey;
     const results: AssetTransfer[] = [];
     let pageCount = 0;
     let retryCount = 0;
@@ -53,7 +58,7 @@ export async function fetchAllTransactions(
     do {
       try {
         console.error(`[${directionLabel}] fetching page ${pageCount + 1}...`);
-        const response = await getAssetTransfers(alchemy, {
+        const response: { transfers: any[]; pageKey?: string } = await getAssetTransfers(alchemy, {
           ...filters,
           fromBlock: '0x0',
           toBlock: 'latest',
@@ -109,21 +114,21 @@ export async function fetchAllTransactions(
     } while (pageKey);
 
     console.error(`[${directionLabel}] complete: ${pageCount} pages, ${results.length} total transfers`);
-    return results;
+    return { results, finalPageKey: pageKey };
   };
 
   console.error(`[Alchemy] fetching incoming and outgoing in parallel...`);
   const startTime = Date.now();
-  
-  const [incoming, outgoing] = await Promise.all([
-    mergeTransfers({ toAddress: address }),
-    mergeTransfers({ fromAddress: address }),
+
+  const [incomingResult, outgoingResult] = await Promise.all([
+    mergeTransfers({ toAddress: address }, incomingPageKey),
+    mergeTransfers({ fromAddress: address }, outgoingPageKey),
   ]);
 
   const elapsedMs = Date.now() - startTime;
   console.error(`[Alchemy] fetch completed in ${elapsedMs}ms`);
 
-  const all = [...incoming, ...outgoing];
+  const all = [...incomingResult.results, ...outgoingResult.results];
   console.error(`[Alchemy] total transfers (before dedup): ${all.length}`);
 
   const uniqueMap = new Map<string, AssetTransfer>();
@@ -136,24 +141,50 @@ export async function fetchAllTransactions(
   const sorted = [...uniqueMap.values()].sort((a, b) => Number(BigInt(a.blockNum) - BigInt(b.blockNum)));
   console.error(`[Alchemy] unique transfers (after dedup): ${sorted.length}`);
 
-  return sorted;
+  return {
+    transactions: sorted,
+    incomingPageKey: incomingResult.finalPageKey,
+    outgoingPageKey: outgoingResult.finalPageKey,
+  };
 }
 // CLI entrypoint
 if (require.main === module) {
+  const { TransactionDb } = require('./TransactionDb');
+
   dotenv.config();
 
   const key = process.env.ALCHEMY_API_KEY;
   const address = process.argv[2];
-  const network = process.argv[3] ?? 'eth-mainnet';
-  const maxPages = parseInt(process.argv[4] ?? '0', 10);
+  const reset = process.argv.includes('--reset');
+
+  // Parse network and maxPages, skipping flags
+  let network = 'eth-mainnet';
+  let maxPages = 0;
+
+  for (let i = 3; i < process.argv.length; i++) {
+    const arg = process.argv[i];
+    if (arg === '--reset') continue;
+    if (arg.startsWith('--')) continue;
+
+    // Try to parse as a number (maxPages)
+    const num = parseInt(arg, 10);
+    if (!isNaN(num)) {
+      maxPages = num;
+    } else {
+      // Otherwise it's the network
+      network = arg;
+    }
+  }
 
   if (!key) {
     console.error('ALCHEMY_API_KEY not found in .env or environment');
     process.exit(1);
   }
   if (!address) {
-    console.error('Usage: pnpm evm <address> [network] [maxPages]');
-    console.error('  maxPages: max pages per direction (0=no limit, def=0, max=100)');
+    console.error('Usage: pnpm evm <address> [network] [maxPages] [--reset]');
+    console.error('  network:  eth-mainnet (default), goerli, sepolia');
+    console.error('  maxPages: max pages per direction (0=no limit, default=0, max=100)');
+    console.error('  --reset:  clear existing data and start from the beginning');
     process.exit(1);
   }
 
@@ -163,14 +194,73 @@ if (require.main === module) {
     process.exit(1);
   }, timeoutMs);
 
-  fetchAllTransactions(key, address, network, maxPages)
-    .then((txs) => {
+  (async () => {
+    try {
+      const db = new TransactionDb();
+
+      try {
+        // Handle reset
+        if (reset) {
+          const cleared = db.clearTransactions(address, network);
+          db.clearCheckpoints(address, network);
+          console.error(`[DB] Reset: cleared ${cleared} existing transactions and checkpoints for ${address} on ${network}`);
+        } else {
+          const existingCount = db.getTransactionCount(address, network);
+          if (existingCount > 0) {
+            const incomingCheckpoint = db.getCheckpoint(address, network, 'incoming');
+            const outgoingCheckpoint = db.getCheckpoint(address, network, 'outgoing');
+            console.error(
+              `[DB] Resume: found ${existingCount} existing transactions, resuming from checkpoints`
+            );
+            if (incomingCheckpoint || outgoingCheckpoint) {
+              console.error(`[DB] Checkpoints: incoming=${!!incomingCheckpoint}, outgoing=${!!outgoingCheckpoint}`);
+            }
+          }
+        }
+
+        // Load checkpoints for resuming (only if not resetting)
+        let incomingPageKey: string | undefined = undefined;
+        let outgoingPageKey: string | undefined = undefined;
+
+        if (!reset) {
+          incomingPageKey = db.getCheckpoint(address, network, 'incoming');
+          outgoingPageKey = db.getCheckpoint(address, network, 'outgoing');
+        }
+
+        // Fetch transactions with optional checkpoint resume
+        const fetchResult = await fetchAllTransactions(key, address, network, maxPages, incomingPageKey, outgoingPageKey);
+        const txs = fetchResult.transactions;
+
+        // Save new checkpoints
+        if (fetchResult.incomingPageKey || incomingPageKey) {
+          db.saveCheckpoint(address, network, 'incoming', fetchResult.incomingPageKey);
+        }
+        if (fetchResult.outgoingPageKey || outgoingPageKey) {
+          db.saveCheckpoint(address, network, 'outgoing', fetchResult.outgoingPageKey);
+        }
+
+        // Store transactions in database (raw JSON dumps)
+        const inserted = db.insertTransactions(address, network, txs, 'hash');
+        console.error(`[DB] Stored ${inserted} new transactions (${txs.length} fetched, duplicates skipped)`);
+
+        // Retrieve all transactions from database (for consistent output)
+        const allStoredTxs = db.getTransactions(address, network);
+
+        clearTimeout(timeoutId);
+        console.log(
+          JSON.stringify(
+            { address, network, totalStored: allStoredTxs.length, transactions: allStoredTxs },
+            null,
+            2
+          )
+        );
+      } finally {
+        db.close();
+      }
+    } catch (error) {
       clearTimeout(timeoutId);
-      console.log(JSON.stringify({ address, network, count: txs.length, transactions: txs }, null, 2));
-    })
-    .catch((error) => {
-      clearTimeout(timeoutId);
-      console.error('\n[Error]', error.message);
+      console.error('\n[Error]', (error as Error).message);
       process.exit(1);
-    });
+    }
+  })();
 }
