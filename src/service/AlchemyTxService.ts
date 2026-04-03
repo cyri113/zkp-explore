@@ -31,6 +31,8 @@ export async function fetchAllTransactions(
   address: string,
   network = 'eth-mainnet'
 ): Promise<AssetTransfer[]> {
+  console.error(`[Alchemy] fetching transactions for ${address} on ${network}`);
+
   const alchemy = initializeAlchemy({ apiKey, network: getNetwork(network) });
 
   const categories: AssetTransfersCategory[] = [
@@ -43,36 +45,54 @@ export async function fetchAllTransactions(
   const mergeTransfers = async (filters: { fromAddress?: string; toAddress?: string }) => {
     let pageKey: string | undefined = undefined;
     const results: AssetTransfer[] = [];
+    let pageCount = 0;
+    const directionLabel = filters.fromAddress ? 'outgoing' : 'incoming';
 
     do {
-      const response = await getAssetTransfers(alchemy, {
-        ...filters,
-        fromBlock: '0x0',
-        toBlock: 'latest',
-        category: categories,
-        pageKey,
-        excludeZeroValue: false,
-        order: AssetTransfersOrder.ASCENDING,
-      });
+      try {
+        console.error(`[${directionLabel}] fetching page ${pageCount + 1}...`);
+        const response = await getAssetTransfers(alchemy, {
+          ...filters,
+          fromBlock: '0x0',
+          toBlock: 'latest',
+          category: categories,
+          pageKey,
+          excludeZeroValue: false,
+          order: AssetTransfersOrder.ASCENDING,
+          maxCount: 100,
+        });
 
-      if (response.transfers) {
-        results.push(
-          ...response.transfers.map((transfer: any) => ({
-            hash: transfer.hash,
-            from: transfer.from,
-            to: transfer.to,
-            value: transfer.value.toString(),
-            asset: transfer.asset ?? null,
-            category: transfer.category,
-            blockNum: transfer.blockNum,
-            metadata: transfer.metadata,
-          }))
-        );
+        if (response.transfers) {
+          results.push(
+            ...response.transfers.map((transfer: any) => ({
+              hash: transfer.hash,
+              from: transfer.from,
+              to: transfer.to || null,
+              value: transfer.value?.toString() ?? '0',
+              asset: transfer.asset ?? null,
+              category: transfer.category,
+              blockNum: transfer.blockNum,
+              metadata: transfer.metadata,
+            }))
+          );
+          console.error(`[${directionLabel}] page ${pageCount + 1} fetched: ${response.transfers.length} transfers`);
+        }
+
+        pageKey = response.pageKey;
+        pageCount++;
+
+        // Safety limit: max 100 pages
+        if (pageCount > 100) {
+          console.error(`[${directionLabel}] reached max page limit (100)`);
+          break;
+        }
+      } catch (error) {
+        console.error(`[${directionLabel}] error on page ${pageCount + 1}:`, (error as Error).message);
+        throw error;
       }
-
-      pageKey = response.pageKey;
     } while (pageKey);
 
+    console.error(`[${directionLabel}] complete: ${pageCount} pages, ${results.length} total transfers`);
     return results;
   };
 
@@ -80,6 +100,7 @@ export async function fetchAllTransactions(
   const outgoing = await mergeTransfers({ fromAddress: address });
 
   const all = [...incoming, ...outgoing];
+  console.error(`[Alchemy] total transfers (before dedup): ${all.length}`);
 
   const uniqueMap = new Map<string, AssetTransfer>();
   for (const tx of all) {
@@ -88,9 +109,11 @@ export async function fetchAllTransactions(
     }
   }
 
-  return [...uniqueMap.values()].sort((a, b) => Number(BigInt(a.blockNum) - BigInt(b.blockNum)));
-}
+  const sorted = [...uniqueMap.values()].sort((a, b) => Number(BigInt(a.blockNum) - BigInt(b.blockNum)));
+  console.error(`[Alchemy] unique transfers (after dedup): ${sorted.length}`);
 
+  return sorted;
+}
 // CLI entrypoint
 if (require.main === module) {
   dotenv.config();
@@ -108,12 +131,20 @@ if (require.main === module) {
     process.exit(1);
   }
 
+  const timeoutMs = 300000; // 5 min timeout
+  const timeoutId = setTimeout(() => {
+    console.error('\n[Timeout] Command exceeded 5 minutes. Exiting.');
+    process.exit(1);
+  }, timeoutMs);
+
   fetchAllTransactions(key, address, network)
     .then((txs) => {
+      clearTimeout(timeoutId);
       console.log(JSON.stringify({ address, network, count: txs.length, transactions: txs }, null, 2));
     })
     .catch((error) => {
-      console.error('Error:', error.message);
+      clearTimeout(timeoutId);
+      console.error('\n[Error]', error.message);
       process.exit(1);
     });
 }
