@@ -4,7 +4,8 @@
 		"evm": "node -r ts-node/register src/service/AlchemyTxService.ts"
 	},
 	"dependencies": {
-		"@alch/alchemy-sdk": "^1.2.0"
+		"@alch/alchemy-sdk": "^1.2.0",
+		"dotenv": "^17.4.0"
 	},
 	"devDependencies": {
 		"@types/jest": "^30.0.0",

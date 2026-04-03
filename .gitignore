@@ -6,6 +6,10 @@ yarn-error.log*
 pnpm-debug.log*
 pnpm-lock.yaml
 
+# Environment
+.env
+.env.local
+
 # TypeScript
 dist/
 build/

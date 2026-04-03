@@ -54,11 +54,25 @@ const rootAt = tree.getRootAt(1700000000);
 
 Fetch all transactions (in/out) for an Ethereum address via Alchemy.
 
-```bash
-# CLI: requires ALCHEMY_API_KEY env var
-ALCHEMY_API_KEY=your-api-key pnpm evm 0xa23fDEBe6Cb888221820B5D56F16a1c5a73Ff4d0
+### Setup
 
-# Or in TypeScript:
+Copy `.env.example` to `.env` and add your Alchemy API key:
+
+```bash
+cp .env.example .env
+# Edit .env and add your API key
+```
+
+### CLI usage
+
+```bash
+pnpm evm 0xa23fDEBe6Cb888221820B5D56F16a1c5a73Ff4d0
+pnpm evm 0xa23fDEBe6Cb888221820B5D56F16a1c5a73Ff4d0 eth-mainnet
+```
+
+### Library usage
+
+```ts
 import { fetchAllTransactions } from './src/service/AlchemyTxService';
 
 const txs = await fetchAllTransactions(apiKey, '0xa23f...', 'eth-mainnet');

@@ -1,3 +1,4 @@
+import dotenv from 'dotenv';
 import { initializeAlchemy, Network, AssetTransfersCategory, AssetTransfersOrder, getAssetTransfers } from '@alch/alchemy-sdk';
 
 export type AssetTransfer = {
@@ -92,12 +93,14 @@ export async function fetchAllTransactions(
 
 // CLI entrypoint
 if (require.main === module) {
+  dotenv.config();
+
   const key = process.env.ALCHEMY_API_KEY;
   const address = process.argv[2];
   const network = process.argv[3] ?? 'eth-mainnet';
 
   if (!key) {
-    console.error('ALCHEMY_API_KEY env var required');
+    console.error('ALCHEMY_API_KEY not found in .env or environment');
     process.exit(1);
   }
   if (!address) {
