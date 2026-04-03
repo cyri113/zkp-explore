@@ -1,0 +1,11 @@
+{
+	"scripts": {
+		"test": "jest --runInBand"
+	},
+	"devDependencies": {
+		"o1js": "^2.14.0",
+		"jest": "^30.3.0",
+		"@types/jest": "^30.0.0",
+		"ts-jest": "^29.4.9"
+	}
+}
