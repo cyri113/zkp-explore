@@ -115,31 +115,19 @@ Transactions are automatically persisted to a local SQLite database (`data/trans
 
 ### Resume mechanism
 
-The service implements **checkpoint-based resume** to efficiently continue from where it left off:
+The service implements **block-based resume** to efficiently continue from where it left off:
 
-1. **Checkpoint saving**: After each fetch, the latest pagination token (`pageKey`) for each direction (incoming/outgoing) is saved to the database.
-2. **Checkpoint resume**: On the next run (without `--reset`), the service loads the saved pageKeys and continues fetching from that point instead of re-fetching already-processed pages.
-3. **Efficient pagination**: This avoids wasting API quota on pages that were already fetched.
-4. **Parallel optimization**: The concurrent direction fetching (via `Promise.all()`) is preserved during resume.
+1. **Block tracking**: After each fetch, the latest block number from stored transactions is tracked
+2. **Resume from next block**: On the next run (without `--reset`), the service starts fetching from the block after the last stored transaction
+3. **Incremental fetching**: Only new transactions (from higher block numbers) are fetched and stored
+4. **Deduplication**: Database-level deduplication ensures no duplicate transactions are stored
 
 **Example flow:**
 ```
-Run 1: --reset, maxPages=1    → Fetch 2 pages (1 per direction) → Save checkpoints → Store 101 txs
-Run 2: maxPages=2             → Load checkpoints, resume from page 2 → Fetch 4 more pages → +200 txs → Total 301
-Run 3: maxPages=3, --reset    → Clear checkpoints, restart from page 1 → Fetch 6 pages → Store 301 txs
-```
-
-### CLI with persistence
-
-```bash
-# First run: download and store transactions (saves checkpoints)
-pnpm evm 0xaea46A60368A7bD060eec7DF8CBa43b7EF41Ad85 eth-mainnet 5
-
-# Subsequent runs: automically resume from checkpoint
-pnpm evm 0xaea46A60368A7bD060eec7DF8CBa43b7EF41Ad85 eth-mainnet 5
-
-# Reset and start from the beginning (clears checkpoints)
-pnpm evm 0xaea46A60368A7bD060eec7DF8CBa43b7EF41Ad85 eth-mainnet 5 --reset
+Run 1: --reset, maxPages=1    → Fetch from block 0 → Store 101 txs (latest: 0xa8d06b)
+Run 2: maxPages=1             → Resume from block 0xa8d06c → +100 txs → Total 201
+Run 3: maxPages=1             → Resume from block 0xa8da5f → +100 txs → Total 301
+Run 4: --reset                → Clear data, restart from block 0 → Store 101 txs
 ```
 
 **Features:**
@@ -166,15 +154,11 @@ const txs: RawTransaction[] = db.getTransactions(address, network);
 // Get count
 const count = db.getTransactionCount(address, network);
 
-// Save/get checkpoints (pagination tokens for resume)
-db.saveCheckpoint(address, network, 'incoming', pageKey);
-const pageKey = db.getCheckpoint(address, network, 'incoming');
+// Get latest block number for resume
+const latestBlock = db.getLatestBlockNum(address, network);
 
 // Clear transactions for specific address/network
 db.clearTransactions(address, network);
-
-// Clear checkpoints for specific address/network (used by --reset)
-db.clearCheckpoints(address, network);
 
 // Close connection
 db.close();

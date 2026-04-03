@@ -108,6 +108,39 @@ export class TransactionDb {
   }
 
   /**
+   * Get the latest transaction block number for a given address/network.
+   * Returns null if no transactions exist yet.
+   */
+  getLatestBlockNum(address: string, network: string): string | null {
+    // Parse block numbers from stored JSON data
+    const rows = this.db
+      .prepare(
+        `
+      SELECT data FROM raw_transactions 
+      WHERE address = ? AND network = ?
+      ORDER BY stored_at DESC
+      LIMIT 100
+    `
+      )
+      .all(address, network) as Array<{ data: string }>;
+
+    let latestBlockNum: string | null = null;
+    for (const row of rows) {
+      try {
+        const tx = JSON.parse(row.data);
+        const blockNum = tx.blockNum || tx.block_num;
+        if (blockNum && (!latestBlockNum || BigInt(blockNum) > BigInt(latestBlockNum))) {
+          latestBlockNum = blockNum;
+        }
+      } catch (e) {
+        // Skip invalid JSON
+      }
+    }
+
+    return latestBlockNum;
+  }
+
+  /**
    * Clear all transactions for a given address/network (for reset).
    */
   clearTransactions(address: string, network: string): number {

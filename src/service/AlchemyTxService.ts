@@ -31,12 +31,10 @@ export async function fetchAllTransactions(
   address: string,
   network = 'eth-mainnet',
   maxPages = 0, // 0 = no limit, >0 = max pages per direction
-  incomingPageKey?: string, // starting page key for incoming
-  outgoingPageKey?: string // starting page key for outgoing
+  fromBlock: string = '0x0' // starting block for resume
 ): Promise<{ transactions: AssetTransfer[]; incomingPageKey?: string; outgoingPageKey?: string }> {
   console.error(
-    `[Alchemy] fetching transactions for ${address} on ${network}${maxPages > 0 ? ` (max ${maxPages} pages)` : ''}${incomingPageKey || outgoingPageKey ? ' (resuming from checkpoint)' : ''
-    }`
+    `[Alchemy] fetching transactions for ${address} on ${network}${maxPages > 0 ? ` (max ${maxPages} pages)` : ''}${fromBlock !== '0x0' ? ` (from block ${parseInt(fromBlock, 16)})` : ''}`
   );
 
   const alchemy = initializeAlchemy({ apiKey, network: getNetwork(network) });
@@ -48,8 +46,8 @@ export async function fetchAllTransactions(
     AssetTransfersCategory.ERC1155,
   ];
 
-  const mergeTransfers = async (filters: { fromAddress?: string; toAddress?: string }, startingPageKey?: string) => {
-    let pageKey: string | undefined = startingPageKey;
+  const mergeTransfers = async (filters: { fromAddress?: string; toAddress?: string }) => {
+    let pageKey: string | undefined = undefined;
     const results: AssetTransfer[] = [];
     let pageCount = 0;
     let retryCount = 0;
@@ -58,12 +56,17 @@ export async function fetchAllTransactions(
     do {
       try {
         console.error(`[${directionLabel}] fetching page ${pageCount + 1}...`);
-        const response: { transfers: any[]; pageKey?: string } = await getAssetTransfers(alchemy, {
+        const response: { transfers: any[]; pageKey?: string } = await getAssetTransfers(alchemy, pageKey ? {
+          pageKey,
+          category: categories,
+          excludeZeroValue: false,
+          order: AssetTransfersOrder.ASCENDING,
+          maxCount: 100,
+        } : {
           ...filters,
-          fromBlock: '0x0',
+          fromBlock,
           toBlock: 'latest',
           category: categories,
-          pageKey,
           excludeZeroValue: false,
           order: AssetTransfersOrder.ASCENDING,
           maxCount: 100,
@@ -94,6 +97,7 @@ export async function fetchAllTransactions(
         const pageLimit = maxPages > 0 ? Math.min(maxPages, 100) : 100;
         if (pageCount >= pageLimit) {
           console.error(`[${directionLabel}] reached page limit (${pageLimit})`);
+          pageKey = undefined; // Prevent next iteration
           break;
         }
       } catch (error) {
@@ -121,8 +125,8 @@ export async function fetchAllTransactions(
   const startTime = Date.now();
 
   const [incomingResult, outgoingResult] = await Promise.all([
-    mergeTransfers({ toAddress: address }, incomingPageKey),
-    mergeTransfers({ fromAddress: address }, outgoingPageKey),
+    mergeTransfers({ toAddress: address }),
+    mergeTransfers({ fromAddress: address }),
   ]);
 
   const elapsedMs = Date.now() - startTime;
@@ -219,25 +223,28 @@ if (require.main === module) {
         }
 
         // Load checkpoints for resuming (only if not resetting)
-        let incomingPageKey: string | undefined = undefined;
-        let outgoingPageKey: string | undefined = undefined;
+        let fromBlock: string = '0x0';
 
         if (!reset) {
-          incomingPageKey = db.getCheckpoint(address, network, 'incoming');
-          outgoingPageKey = db.getCheckpoint(address, network, 'outgoing');
+          const existingCount = db.getTransactionCount(address, network);
+          if (existingCount > 0) {
+            const latestBlockNum = db.getLatestBlockNum(address, network);
+            if (latestBlockNum) {
+              // Start from the next block after the latest we have
+              const nextBlock = BigInt(latestBlockNum) + 1n;
+              fromBlock = '0x' + nextBlock.toString(16);
+              console.error(
+                `[DB] Resume: found ${existingCount} existing transactions, latest at block ${latestBlockNum}, resuming from block ${nextBlock}`
+              );
+            } else {
+              console.error(`[DB] Resume: found ${existingCount} existing transactions but no block info`);
+            }
+          }
         }
 
-        // Fetch transactions with optional checkpoint resume
-        const fetchResult = await fetchAllTransactions(key, address, network, maxPages, incomingPageKey, outgoingPageKey);
+        // Fetch transactions with block-based resume
+        const fetchResult = await fetchAllTransactions(key, address, network, maxPages, fromBlock);
         const txs = fetchResult.transactions;
-
-        // Save new checkpoints
-        if (fetchResult.incomingPageKey || incomingPageKey) {
-          db.saveCheckpoint(address, network, 'incoming', fetchResult.incomingPageKey);
-        }
-        if (fetchResult.outgoingPageKey || outgoingPageKey) {
-          db.saveCheckpoint(address, network, 'outgoing', fetchResult.outgoingPageKey);
-        }
 
         // Store transactions in database (raw JSON dumps)
         const inserted = db.insertTransactions(address, network, txs, 'hash');
