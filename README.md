@@ -13,7 +13,7 @@ In-memory Merkle tree for pre-hashed leaves with historical root snapshots.
 - `LeafEntry`: `{ id, fields, timestamp, sortKey }`
 - `RootSnapshot`: `{ root, leafIndex, timestamp, sortKey }`
 
-## API
+## Merkle Tree API
 
 ```ts
 import { HashTree } from './src/merkle/HashTree';
@@ -50,6 +50,21 @@ console.log('is valid', restored.validate(0n));
 const rootAt = tree.getRootAt(1700000000);
 ```
 
+## EVM Transaction Fetcher
+
+Fetch all transactions (in/out) for an Ethereum address via Alchemy.
+
+```bash
+# CLI: requires ALCHEMY_API_KEY env var
+ALCHEMY_API_KEY=your-api-key pnpm evm 0xa23fDEBe6Cb888221820B5D56F16a1c5a73Ff4d0
+
+# Or in TypeScript:
+import { fetchAllTransactions } from './src/service/AlchemyTxService';
+
+const txs = await fetchAllTransactions(apiKey, '0xa23f...', 'eth-mainnet');
+console.log(txs); // AssetTransfer[]
+```
+
 ## Testing
 
 ```bash
@@ -59,8 +74,10 @@ pnpm test
 Test files:
 - `src/merkle/HashTree.test.ts`
 - `src/merkle/adapters/evm.test.ts`
+- `src/service/AlchemyTxService.test.ts`
 
 ## Notes
 
 - `HashTree.addLeaf` enforces strictly increasing `sortKey` and unique `id`.
 - `fromJSON` rebuilds the tree from leaves and restores snapshots.
+- `fetchAllTransactions` deduplicates tx hashes and sorts by block number.
