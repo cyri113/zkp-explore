@@ -47,6 +47,7 @@ export async function fetchAllTransactions(
     let pageKey: string | undefined = undefined;
     const results: AssetTransfer[] = [];
     let pageCount = 0;
+    let retryCount = 0;
     const directionLabel = filters.fromAddress ? 'outgoing' : 'incoming';
 
     do {
@@ -62,6 +63,8 @@ export async function fetchAllTransactions(
           order: AssetTransfersOrder.ASCENDING,
           maxCount: 100,
         });
+
+        retryCount = 0; // reset on success
 
         if (response.transfers) {
           results.push(
@@ -89,6 +92,17 @@ export async function fetchAllTransactions(
           break;
         }
       } catch (error) {
+        const err = error as any;
+        const isRateLimit = err?.status === 429 || err?.code === 'RATE_LIMITED';
+
+        if (isRateLimit && retryCount < 3) {
+          const backoffMs = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+          console.error(`[${directionLabel}] rate limited, retrying in ${backoffMs}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+          retryCount++;
+          continue;
+        }
+
         console.error(`[${directionLabel}] error on page ${pageCount + 1}:`, (error as Error).message);
         throw error;
       }
@@ -98,8 +112,16 @@ export async function fetchAllTransactions(
     return results;
   };
 
-  const incoming = await mergeTransfers({ toAddress: address });
-  const outgoing = await mergeTransfers({ fromAddress: address });
+  console.error(`[Alchemy] fetching incoming and outgoing in parallel...`);
+  const startTime = Date.now();
+  
+  const [incoming, outgoing] = await Promise.all([
+    mergeTransfers({ toAddress: address }),
+    mergeTransfers({ fromAddress: address }),
+  ]);
+
+  const elapsedMs = Date.now() - startTime;
+  console.error(`[Alchemy] fetch completed in ${elapsedMs}ms`);
 
   const all = [...incoming, ...outgoing];
   console.error(`[Alchemy] total transfers (before dedup): ${all.length}`);
