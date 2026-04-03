@@ -66,16 +66,33 @@ cp .env.example .env
 ### CLI usage
 
 ```bash
+# Fetch all transactions (may take time for active addresses)
 pnpm evm 0xa23fDEBe6Cb888221820B5D56F16a1c5a73Ff4d0
+
+# Limit to first N pages (per direction; 0=no limit, max=100)
+pnpm evm 0xaea46A60368A7bD060eec7DF8CBa43b7EF41Ad85 eth-mainnet 2
+
+# Specify network
 pnpm evm 0xa23fDEBe6Cb888221820B5D56F16a1c5a73Ff4d0 eth-mainnet
 ```
+
+**Notes:**
+- Each page contains up to 100 transfers.
+- `maxPages` applies to both incoming and outgoing directions (default: unlimited).
+- Actual result count may be lower after deduplication.
+- Large contracts (10k+ transfers) without page limit may take several minutes.
 
 ### Library usage
 
 ```ts
 import { fetchAllTransactions } from './src/service/AlchemyTxService';
 
+// Fetch all transactions
 const txs = await fetchAllTransactions(apiKey, '0xa23f...', 'eth-mainnet');
+
+// Limit to first 2 pages per direction
+const txs = await fetchAllTransactions(apiKey, '0xa23f...', 'eth-mainnet', 2);
+
 console.log(txs); // AssetTransfer[]
 ```
 
