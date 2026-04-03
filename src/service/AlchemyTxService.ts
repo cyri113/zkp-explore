@@ -29,9 +29,10 @@ function getNetwork(network: string): Network {
 export async function fetchAllTransactions(
   apiKey: string,
   address: string,
-  network = 'eth-mainnet'
+  network = 'eth-mainnet',
+  maxPages = 0 // 0 = no limit, >0 = max pages per direction
 ): Promise<AssetTransfer[]> {
-  console.error(`[Alchemy] fetching transactions for ${address} on ${network}`);
+  console.error(`[Alchemy] fetching transactions for ${address} on ${network}${maxPages > 0 ? ` (max ${maxPages} pages)` : ''}`);
 
   const alchemy = initializeAlchemy({ apiKey, network: getNetwork(network) });
 
@@ -81,9 +82,10 @@ export async function fetchAllTransactions(
         pageKey = response.pageKey;
         pageCount++;
 
-        // Safety limit: max 100 pages
-        if (pageCount > 100) {
-          console.error(`[${directionLabel}] reached max page limit (100)`);
+        // Safety limit: max pages (user-configurable or hard limit of 100)
+        const pageLimit = maxPages > 0 ? Math.min(maxPages, 100) : 100;
+        if (pageCount >= pageLimit) {
+          console.error(`[${directionLabel}] reached page limit (${pageLimit})`);
           break;
         }
       } catch (error) {
@@ -121,13 +123,15 @@ if (require.main === module) {
   const key = process.env.ALCHEMY_API_KEY;
   const address = process.argv[2];
   const network = process.argv[3] ?? 'eth-mainnet';
+  const maxPages = parseInt(process.argv[4] ?? '0', 10);
 
   if (!key) {
     console.error('ALCHEMY_API_KEY not found in .env or environment');
     process.exit(1);
   }
   if (!address) {
-    console.error('Usage: pnpm evm <address> [network]');
+    console.error('Usage: pnpm evm <address> [network] [maxPages]');
+    console.error('  maxPages: max pages per direction (0=no limit, def=0, max=100)');
     process.exit(1);
   }
 
@@ -137,7 +141,7 @@ if (require.main === module) {
     process.exit(1);
   }, timeoutMs);
 
-  fetchAllTransactions(key, address, network)
+  fetchAllTransactions(key, address, network, maxPages)
     .then((txs) => {
       clearTimeout(timeoutId);
       console.log(JSON.stringify({ address, network, count: txs.length, transactions: txs }, null, 2));
