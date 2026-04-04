@@ -1,0 +1,16 @@
+{
+  "name": "@zkp/evm",
+  "version": "0.0.1",
+  "private": true,
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "jest --runInBand"
+  },
+  "dependencies": {
+    "@alch/alchemy-sdk": "^1.2.0",
+    "dotenv": "^17.4.0",
+    "@zkp/db": "workspace:*"
+  }
+}

@@ -163,7 +163,7 @@ export async function fetchAllTransactions(
 
 // CLI entrypoint
 if (require.main === module) {
-  const { TransactionDb } = require('./TransactionDb');
+  const { TransactionDb } = require('@zkp/db');
 
   dotenv.config();
 

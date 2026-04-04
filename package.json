@@ -1,19 +1,18 @@
 {
-	"scripts": {
-		"test": "jest --runInBand",
-		"evm": "ts-node src/service/AlchemyTxService.ts"
-	},
-	"dependencies": {
-		"@alch/alchemy-sdk": "^1.2.0",
-		"better-sqlite3": "^12.8.0",
-		"dotenv": "^17.4.0"
-	},
-	"devDependencies": {
-		"@types/better-sqlite3": "^7.6.13",
-		"@types/jest": "^30.0.0",
-		"jest": "^30.3.0",
-		"o1js": "^2.14.0",
-		"ts-jest": "^29.4.9",
-		"ts-node": "^10.9.2"
-	}
+  "name": "zkp-explore",
+  "private": true,
+  "scripts": {
+    "test": "jest --runInBand",
+    "evm": "ts-node packages/evm/src/AlchemyTxService.ts",
+    "tree": "ts-node packages/cli/src/BuildTree.ts",
+    "build": "tsc -b",
+    "clean": "pnpm -r run clean"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
+  }
 }

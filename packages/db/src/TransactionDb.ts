@@ -17,7 +17,16 @@ export class TransactionDb {
 
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
+    this.registerFunctions();
     this.initializeSchema();
+  }
+
+  private registerFunctions() {
+    this.db.function('hex_to_int', (hex: string) => Number(BigInt(hex)));
+    this.db.function('extract_log_index', (uniqueId: string) => {
+      const parts = uniqueId.split(':');
+      return Number(parts[parts.length - 1]);
+    });
   }
 
   private initializeSchema() {
@@ -46,6 +55,42 @@ export class TransactionDb {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    this.migrateAddSortColumns();
+  }
+
+  private migrateAddSortColumns() {
+    // Add columns if they don't exist (idempotent migration for existing DBs)
+    const columns = this.db
+      .prepare(`PRAGMA table_info(raw_transactions)`)
+      .all() as Array<{ name: string }>;
+    const colNames = new Set(columns.map((c) => c.name));
+
+    if (!colNames.has('block_number')) {
+      console.error('[DB] Migrating: adding block_number and log_index columns...');
+      this.db.exec(`ALTER TABLE raw_transactions ADD COLUMN block_number INTEGER`);
+      this.db.exec(`ALTER TABLE raw_transactions ADD COLUMN log_index INTEGER`);
+      this.db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_raw_tx_order
+          ON raw_transactions (block_number, log_index)
+      `);
+    }
+
+    // Backfill any rows missing sort columns
+    const needsBackfill = this.db
+      .prepare(`SELECT COUNT(*) as count FROM raw_transactions WHERE block_number IS NULL`)
+      .get() as { count: number };
+
+    if (needsBackfill.count > 0) {
+      console.error(`[DB] Backfilling ${needsBackfill.count.toLocaleString()} rows with sort columns...`);
+      this.db.exec(`
+        UPDATE raw_transactions
+        SET block_number = hex_to_int(json_extract(data, '$.blockNum')),
+            log_index = extract_log_index(json_extract(data, '$.uniqueId'))
+        WHERE block_number IS NULL
+      `);
+      console.error(`[DB] Backfill complete.`);
+    }
   }
 
   getOrCreateNetwork(name: string): number {
@@ -74,8 +119,8 @@ export class TransactionDb {
 
   insertTransactions(transactions: RawTransaction[], hashKey = 'hash', assetId?: number): number {
     const insertStmt = this.db.prepare(`
-      INSERT OR IGNORE INTO raw_transactions (hash, asset_id, data)
-      VALUES (?, ?, ?)
+      INSERT OR IGNORE INTO raw_transactions (hash, asset_id, block_number, log_index, data)
+      VALUES (?, ?, ?, ?, ?)
     `);
 
     const insert = this.db.transaction((txs: RawTransaction[]) => {
@@ -84,9 +129,21 @@ export class TransactionDb {
         const hash = tx[hashKey];
         if (!hash) continue;
 
+        const blockNum = tx.blockNum as string | undefined;
+        const blockNumber = blockNum ? Number(BigInt(blockNum)) : null;
+
+        const uniqueId = tx.uniqueId as string | undefined;
+        let logIndex: number | null = null;
+        if (uniqueId) {
+          const parts = uniqueId.split(':');
+          logIndex = Number(parts[parts.length - 1]);
+        }
+
         const result = insertStmt.run(
           String(hash),
           assetId ?? null,
+          blockNumber,
+          logIndex,
           JSON.stringify(tx)
         );
         if ((result.changes ?? 0) > 0) {
@@ -105,6 +162,34 @@ export class TransactionDb {
       .all() as Array<{ data: string }>;
 
     return rows.map((row) => JSON.parse(row.data));
+  }
+
+  *iterateTransactionsOrdered(pageSize = 50_000): IterableIterator<RawTransaction> {
+    const stmt = this.db.prepare(`
+      SELECT block_number, log_index, data FROM raw_transactions
+      WHERE block_number > ? OR (block_number = ? AND log_index > ?)
+      ORDER BY block_number, log_index
+      LIMIT ?
+    `);
+
+    let lastBlock = -1;
+    let lastLog = -1;
+
+    while (true) {
+      const rows = stmt.all(lastBlock, lastBlock, lastLog, pageSize) as Array<{
+        block_number: number;
+        log_index: number;
+        data: string;
+      }>;
+
+      if (rows.length === 0) break;
+
+      for (const row of rows) {
+        lastBlock = row.block_number;
+        lastLog = row.log_index;
+        yield JSON.parse(row.data);
+      }
+    }
   }
 
   getTransactionCount(): number {

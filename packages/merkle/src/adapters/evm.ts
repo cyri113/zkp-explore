@@ -14,14 +14,25 @@ export type EvmTransferEvent = {
 
 const pad = (n: number | bigint, width: number): string => String(n).padStart(width, '0');
 
+const hashCache = new Map<string, Field>();
+
+function cachedHashString(s: string): Field {
+  let result = hashCache.get(s);
+  if (result === undefined) {
+    result = hashString(s);
+    hashCache.set(s, result);
+  }
+  return result;
+}
+
 export function evmTransferToLeaf(event: EvmTransferEvent): LeafEntry {
   const id = `${event.transactionHash}-${event.logIndex}`;
   const sortKey = `${pad(event.blockNumber, 12)}-${pad(event.logIndex, 6)}`;
 
   const fields: Field[] = [
-    hashString(event.transactionHash),
-    hashString(event.from),
-    hashString(event.to),
+    cachedHashString(event.transactionHash),
+    cachedHashString(event.from),
+    cachedHashString(event.to),
     Field(event.value),
     Field(event.blockTimestamp),
   ];
@@ -32,4 +43,8 @@ export function evmTransferToLeaf(event: EvmTransferEvent): LeafEntry {
     timestamp: event.blockTimestamp,
     sortKey,
   };
+}
+
+export function clearHashCache(): void {
+  hashCache.clear();
 }

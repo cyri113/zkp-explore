@@ -1,0 +1,14 @@
+{
+  "name": "@zkp/merkle",
+  "version": "0.0.1",
+  "private": true,
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "jest --runInBand"
+  },
+  "dependencies": {
+    "o1js": "^2.14.0"
+  }
+}
