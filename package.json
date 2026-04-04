@@ -3,8 +3,9 @@
   "private": true,
   "scripts": {
     "test": "jest --runInBand",
-    "evm": "ts-node packages/evm/src/AlchemyTxService.ts",
-    "tree": "ts-node packages/cli/src/BuildTree.ts",
+    "indexer": "ts-node packages/indexer/src/server.ts",
+    "indexer:sync": "ts-node packages/indexer/src/AlchemyTxService.ts",
+    "merkle": "ts-node packages/merkle/src/server.ts",
     "build": "tsc -b",
     "clean": "pnpm -r run clean"
   },

@@ -1,17 +1,22 @@
 {
-  "name": "@zkp/merkle",
+  "name": "@zkp/indexer",
   "version": "0.0.1",
   "private": true,
   "main": "src/index.ts",
   "scripts": {
     "start": "ts-node src/server.ts",
+    "sync": "ts-node src/cli/index.ts",
     "build": "tsc -b",
     "clean": "rm -rf dist *.tsbuildinfo",
     "test": "jest --runInBand"
   },
   "dependencies": {
+    "@alch/alchemy-sdk": "^1.2.0",
+    "@types/yargs": "^17.0.35",
     "better-sqlite3": "^12.8.0",
-    "o1js": "^2.14.0"
+    "dotenv": "^17.4.0",
+    "p-limit": "^7.3.0",
+    "yargs": "^18.0.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13"

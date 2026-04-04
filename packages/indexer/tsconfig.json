@@ -15,8 +15,5 @@
     "types": ["node", "jest"]
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts"],
-  "references": [
-    { "path": "../db" }
-  ]
+  "exclude": ["src/**/*.test.ts"]
 }

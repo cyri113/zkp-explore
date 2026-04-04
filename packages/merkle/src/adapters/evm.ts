@@ -25,6 +25,32 @@ function cachedHashString(s: string): Field {
   return result;
 }
 
+export type RawAlchemyTransfer = Record<string, unknown>;
+
+export function rawToEvmTransferEvent(raw: RawAlchemyTransfer): EvmTransferEvent {
+  const blockNum = raw.blockNum as string;
+  const blockNumber = Number(BigInt(blockNum));
+
+  const uniqueId = raw.uniqueId as string;
+  const parts = uniqueId.split(':');
+  const logIndex = Number(parts[parts.length - 1]);
+
+  const metadata = raw.metadata as { blockTimestamp?: string } | undefined;
+  const blockTimestamp = metadata?.blockTimestamp
+    ? Math.floor(new Date(metadata.blockTimestamp).getTime() / 1000)
+    : 0;
+
+  return {
+    transactionHash: raw.hash as string,
+    logIndex,
+    blockNumber,
+    blockTimestamp,
+    from: raw.from as string,
+    to: (raw.to as string) || '0x0000000000000000000000000000000000000000',
+    value: BigInt(Math.trunc(Number(raw.value as string || '0'))),
+  };
+}
+
 export function evmTransferToLeaf(event: EvmTransferEvent): LeafEntry {
   const id = `${event.transactionHash}-${event.logIndex}`;
   const sortKey = `${pad(event.blockNumber, 12)}-${pad(event.logIndex, 6)}`;

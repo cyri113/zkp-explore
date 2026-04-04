@@ -1,9 +1,7 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/merkle" },
-    { "path": "packages/db" },
-    { "path": "packages/evm" },
-    { "path": "packages/cli" }
+    { "path": "packages/indexer" },
+    { "path": "packages/merkle" }
   ]
 }

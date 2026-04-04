@@ -3,11 +3,11 @@ import path from 'path';
 import fs from 'fs';
 
 const DB_DIR = path.join(process.cwd(), 'data');
-const DB_PATH = path.join(DB_DIR, 'transactions.db');
+const DB_PATH = path.join(DB_DIR, 'indexer.db');
 
 export type RawTransaction = Record<string, unknown>;
 
-export class TransactionDb {
+export class IndexerDb {
   private db: Database.Database;
 
   constructor(dbPath = DB_PATH) {
@@ -190,6 +190,35 @@ export class TransactionDb {
         yield JSON.parse(row.data);
       }
     }
+  }
+
+  getTransactionPage(pageSize: number, afterBlock = -1, afterLog = -1): {
+    transactions: RawTransaction[];
+    lastBlock: number;
+    lastLog: number;
+  } {
+    const rows = this.db
+      .prepare(`
+        SELECT block_number, log_index, data FROM raw_transactions
+        WHERE block_number > ? OR (block_number = ? AND log_index > ?)
+        ORDER BY block_number, log_index
+        LIMIT ?
+      `)
+      .all(afterBlock, afterBlock, afterLog, pageSize) as Array<{
+        block_number: number;
+        log_index: number;
+        data: string;
+      }>;
+
+    let lastBlockOut = afterBlock;
+    let lastLogOut = afterLog;
+    const transactions = rows.map((row) => {
+      lastBlockOut = row.block_number;
+      lastLogOut = row.log_index;
+      return JSON.parse(row.data);
+    });
+
+    return { transactions, lastBlock: lastBlockOut, lastLog: lastLogOut };
   }
 
   getTransactionCount(): number {
