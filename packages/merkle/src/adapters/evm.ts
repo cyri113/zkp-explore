@@ -1,6 +1,8 @@
-import { Field } from 'o1js';
-import { LeafEntry } from '../types';
+import { Field, Poseidon } from 'o1js';
+import { LeafEntry, TransferLeaf } from '../types';
 import { hashString } from '../hash';
+
+// --- Legacy types (kept for backward compat) ---
 
 export type EvmTransferEvent = {
   transactionHash: string;
@@ -73,4 +75,72 @@ export function evmTransferToLeaf(event: EvmTransferEvent): LeafEntry {
 
 export function clearHashCache(): void {
   hashCache.clear();
+}
+
+// --- New hierarchical tree functions ---
+
+const MASK_128 = (1n << 128n) - 1n;
+
+/**
+ * Convert raw indexer API JSON to a TransferLeaf.
+ * Handles the Alchemy-style JSON format stored in the indexer DB.
+ */
+export function rawToTransferLeaf(raw: Record<string, unknown>): TransferLeaf {
+  const blockNum = raw.blockNum as string;
+  const blockNumber = Number(BigInt(blockNum));
+
+  const uniqueId = raw.uniqueId as string;
+  const parts = uniqueId.split(':');
+  const logIndex = Number(parts[parts.length - 1]);
+
+  // console.error(`Processing transaction ${raw.hash} | block ${blockNumber} | log ${logIndex}`);
+
+  return {
+    from: ((raw.from as string) || '0x0000000000000000000000000000000000000000').toLowerCase(),
+    to: ((raw.to as string) || '0x0000000000000000000000000000000000000000').toLowerCase(),
+    value: String(raw.value ?? '0'),
+    txHash: (raw.hash as string).toLowerCase(),
+    logIndex,
+    blockNumber,
+  };
+}
+
+/**
+ * Hash a TransferLeaf using direct BigInt→Field conversion.
+ *
+ * - Addresses (160 bits) fit in a single Field (254-bit modulus)
+ * - txHash (256 bits) is split into two 128-bit Fields
+ * - value, logIndex, blockNumber are direct conversions
+ * - Single Poseidon.hash call with 7 Fields
+ *
+ * This is orders of magnitude faster than the legacy hashString approach
+ * which called Poseidon per-character.
+ */
+export function transferToLeafHash(leaf: TransferLeaf): Field {
+  const fromField = Field(BigInt(leaf.from));
+  const toField = Field(BigInt(leaf.to));
+
+  // Value may be a decimal string, hex string, or "0"
+  const valueBigInt = leaf.value.startsWith('0x')
+    ? BigInt(leaf.value)
+    : BigInt(Math.trunc(Number(leaf.value)));
+  const valueField = Field(valueBigInt);
+
+  // txHash is 256 bits — split into high/low 128-bit halves
+  const txHashBigInt = BigInt(leaf.txHash);
+  const txHashHigh = Field(txHashBigInt >> 128n);
+  const txHashLow = Field(txHashBigInt & MASK_128);
+
+  const logIndexField = Field(BigInt(leaf.logIndex));
+  const blockField = Field(BigInt(leaf.blockNumber));
+
+  return Poseidon.hash([
+    fromField,
+    toField,
+    valueField,
+    txHashHigh,
+    txHashLow,
+    logIndexField,
+    blockField,
+  ]);
 }

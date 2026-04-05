@@ -74,6 +74,10 @@ export class IndexerDb {
         CREATE INDEX IF NOT EXISTS idx_raw_tx_order
           ON raw_transactions (block_number, log_index)
       `);
+      this.db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_raw_tx_asset_order
+          ON raw_transactions (asset_id, block_number, log_index)
+      `);
     }
 
     // Backfill any rows missing sort columns
@@ -192,19 +196,28 @@ export class IndexerDb {
     }
   }
 
-  getTransactionPage(pageSize: number, afterBlock = -1, afterLog = -1): {
+  getTransactionPage(pageSize: number, afterBlock = -1, afterLog = -1, assetId?: number): {
     transactions: RawTransaction[];
     lastBlock: number;
     lastLog: number;
   } {
+    const hasAsset = assetId != null;
     const rows = this.db
-      .prepare(`
-        SELECT block_number, log_index, data FROM raw_transactions
-        WHERE block_number > ? OR (block_number = ? AND log_index > ?)
-        ORDER BY block_number, log_index
-        LIMIT ?
-      `)
-      .all(afterBlock, afterBlock, afterLog, pageSize) as Array<{
+      .prepare(
+        hasAsset
+          ? `SELECT block_number, log_index, data FROM raw_transactions
+             WHERE asset_id = ? AND (block_number > ? OR (block_number = ? AND log_index > ?))
+             ORDER BY block_number, log_index
+             LIMIT ?`
+          : `SELECT block_number, log_index, data FROM raw_transactions
+             WHERE (block_number > ? OR (block_number = ? AND log_index > ?))
+             ORDER BY block_number, log_index
+             LIMIT ?`
+      )
+      .all(...(hasAsset
+        ? [assetId, afterBlock, afterBlock, afterLog, pageSize]
+        : [afterBlock, afterBlock, afterLog, pageSize]
+      )) as Array<{
         block_number: number;
         log_index: number;
         data: string;
@@ -221,12 +234,34 @@ export class IndexerDb {
     return { transactions, lastBlock: lastBlockOut, lastLog: lastLogOut };
   }
 
-  getTransactionCount(): number {
-    const row = this.db
-      .prepare(`SELECT COUNT(*) as count FROM raw_transactions`)
-      .get() as { count: number };
+  getTransactionCount(assetId?: number): number {
+    const row = assetId != null
+      ? this.db
+        .prepare('SELECT COUNT(*) as count FROM raw_transactions WHERE asset_id = ?')
+        .get(assetId) as { count: number }
+      : this.db
+        .prepare('SELECT COUNT(*) as count FROM raw_transactions')
+        .get() as { count: number };
 
     return row.count;
+  }
+
+  getAssets(): Array<{ id: number; networkId: number; network: string; address: string }> {
+    return this.db
+      .prepare(`
+        SELECT a.id, a.network_id, n.name as network, a.address
+        FROM assets a
+        JOIN networks n ON n.id = a.network_id
+        ORDER BY a.id
+      `)
+      .all() as Array<{ id: number; networkId: number; network: string; address: string }>;
+  }
+
+  getAssetByAddress(address: string): { id: number; networkId: number; address: string } | null {
+    const row = this.db
+      .prepare('SELECT id, network_id, address FROM assets WHERE LOWER(address) = LOWER(?)')
+      .get(address) as { id: number; network_id: number; address: string } | undefined;
+    return row ? { id: row.id, networkId: row.network_id, address: row.address } : null;
   }
 
   getResumeBlock(assetId: number): number | null {

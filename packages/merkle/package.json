@@ -5,15 +5,23 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "ts-node src/server.ts",
+    "cli": "ts-node src/cli.ts",
+    "cli:build": "ts-node src/cli.ts build",
+    "cli:query": "ts-node src/cli.ts query",
     "build": "tsc -b",
     "clean": "rm -rf dist *.tsbuildinfo",
     "test": "jest --runInBand"
   },
   "dependencies": {
+    "axios": "^1.14.0",
     "better-sqlite3": "^12.8.0",
-    "o1js": "^2.14.0"
+    "dotenv": "^17.4.0",
+    "o1js": "^2.14.0",
+    "p-limit": "3.1.0",
+    "yargs": "^18.0.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13"
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/yargs": "^17.0.35"
   }
 }

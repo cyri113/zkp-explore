@@ -14,25 +14,41 @@ function error(res: http.ServerResponse, message: string, status = 400) {
   json(res, { error: message }, status);
 }
 
+/** Parse optional asset_id from query params (number or undefined) */
+function parseAssetId(url: URL): number | undefined {
+  const raw = url.searchParams.get('asset_id');
+  if (raw == null) return undefined;
+  const n = Number(raw);
+  return isNaN(n) ? undefined : n;
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url!, `http://${req.headers.host}`);
   const method = req.method || 'GET';
 
   try {
-    // GET /transactions/count
-    if (method === 'GET' && url.pathname === '/transactions/count') {
-      const count = db.getTransactionCount();
-      return json(res, { count });
+    // GET /assets — list all indexed assets
+    if (method === 'GET' && url.pathname === '/assets') {
+      const assets = db.getAssets();
+      return json(res, { assets });
     }
 
-    // GET /transactions?page_size=N&after_block=B&after_log=L
+    // GET /transactions/count?asset_id=ID (optional)
+    if (method === 'GET' && url.pathname === '/transactions/count') {
+      const assetId = parseAssetId(url);
+      const count = db.getTransactionCount(assetId);
+      return json(res, { count, assetId: assetId ?? null });
+    }
+
+    // GET /transactions?asset_id=ID&page_size=N&after_block=B&after_log=L
     if (method === 'GET' && url.pathname === '/transactions') {
+      const assetId = parseAssetId(url);
       const pageSize = Number(url.searchParams.get('page_size') || '1000');
       const afterBlock = Number(url.searchParams.get('after_block') ?? '-1');
       const afterLog = Number(url.searchParams.get('after_log') ?? '-1');
 
-      const page = db.getTransactionPage(pageSize, afterBlock, afterLog);
-      return json(res, page);
+      const page = db.getTransactionPage(pageSize, afterBlock, afterLog, assetId);
+      return json(res, { ...page, assetId: assetId ?? null });
     }
 
     // GET /health
@@ -49,7 +65,8 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   const count = db.getTransactionCount();
-  console.log(`[Indexer] Listening on :${PORT} (${count.toLocaleString()} transactions)`);
+  const assets = db.getAssets();
+  console.log(`[Indexer] Listening on :${PORT} (${count.toLocaleString()} transactions, ${assets.length} assets)`);
 });
 
 process.on('SIGINT', () => {
