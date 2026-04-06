@@ -3,14 +3,14 @@ import { MerkleDb } from './MerkleDb';
 import { BatchBuilder, resolveIndexerFetchPageSize } from './BatchBuilder';
 import { PoseidonMerkleTree } from './PoseidonMerkleTree';
 import { TransferLeaf } from './types';
-import { transferToLeafHash } from './adapters/evm';
+import { normalizeEvmAddress, transferToLeafHash } from './adapters/evm';
 
 const TEST_ASSET_ID = 1;
 
 function makeTransfer(blockNumber: number, logIndex: number, from = '0xaaa', to = '0xbbb'): TransferLeaf {
   return {
-    from: from.toLowerCase(),
-    to: to.toLowerCase(),
+    from: normalizeEvmAddress(from),
+    to: normalizeEvmAddress(to),
     value: '1000',
     txHash: `0x${'0'.repeat(62)}${blockNumber.toString(16).padStart(2, '0')}`,
     logIndex,
@@ -54,6 +54,88 @@ describe('BatchBuilder', () => {
       builder.buildBatch([makeTransfer(100, 0)]);
       expect(db.getBatchCount(TEST_ASSET_ID)).toBe(1);
       db.clearAll();
+      expect(db.getBatchCount(TEST_ASSET_ID)).toBe(0);
+    });
+  });
+
+  describe('tryRewindPartialTailBatch', () => {
+    it('removes only the last batch when it is partial and returns indexer cursor', () => {
+      const b = new BatchBuilder(db, TEST_ASSET_ID, 5);
+      b.buildBatch([
+        makeTransfer(100, 0),
+        makeTransfer(100, 1),
+        makeTransfer(100, 2),
+        makeTransfer(100, 3),
+        makeTransfer(100, 4),
+      ]);
+      b.buildBatch([makeTransfer(200, 0), makeTransfer(200, 1)]);
+      expect(db.getBatchCount(TEST_ASSET_ID)).toBe(2);
+
+      const rewind = db.tryRewindPartialTailBatch(TEST_ASSET_ID, 5);
+      expect(rewind).not.toBeNull();
+      expect(rewind!.resumeAfterBlock).toBe(200);
+      expect(rewind!.resumeAfterLog).toBe(-1);
+      expect(db.getBatchCount(TEST_ASSET_ID)).toBe(1);
+    });
+
+    it('returns null when the last batch is full', () => {
+      const b = new BatchBuilder(db, TEST_ASSET_ID, 5);
+      b.buildBatch([
+        makeTransfer(100, 0),
+        makeTransfer(100, 1),
+        makeTransfer(100, 2),
+        makeTransfer(100, 3),
+        makeTransfer(100, 4),
+      ]);
+      expect(db.tryRewindPartialTailBatch(TEST_ASSET_ID, 5)).toBeNull();
+      expect(db.getBatchCount(TEST_ASSET_ID)).toBe(1);
+    });
+
+    it('keeps snapshots that did not include the partial tail (no rebuild after tail)', () => {
+      const b = new BatchBuilder(db, TEST_ASSET_ID, 5);
+      b.buildBatch([
+        makeTransfer(100, 0),
+        makeTransfer(100, 1),
+        makeTransfer(100, 2),
+        makeTransfer(100, 3),
+        makeTransfer(100, 4),
+      ]);
+      b.buildTopLevelTree();
+      expect(db.getLatestSnapshot(TEST_ASSET_ID)!.batchCount).toBe(1);
+
+      b.buildBatch([makeTransfer(200, 0), makeTransfer(200, 1)]);
+      db.tryRewindPartialTailBatch(TEST_ASSET_ID, 5);
+
+      expect(db.getLatestSnapshot(TEST_ASSET_ID)!.batchCount).toBe(1);
+      expect(db.getBatchCount(TEST_ASSET_ID)).toBe(1);
+    });
+
+    it('drops snapshot that was built over the partial tail', () => {
+      const b = new BatchBuilder(db, TEST_ASSET_ID, 5);
+      b.buildBatch([
+        makeTransfer(100, 0),
+        makeTransfer(100, 1),
+        makeTransfer(100, 2),
+        makeTransfer(100, 3),
+        makeTransfer(100, 4),
+      ]);
+      b.buildBatch([makeTransfer(200, 0), makeTransfer(200, 1)]);
+      b.buildTopLevelTree();
+      expect(db.getLatestSnapshot(TEST_ASSET_ID)!.batchCount).toBe(2);
+
+      db.tryRewindPartialTailBatch(TEST_ASSET_ID, 5);
+      expect(db.getLatestSnapshot(TEST_ASSET_ID)).toBeNull();
+      expect(db.getBatchCount(TEST_ASSET_ID)).toBe(1);
+    });
+
+    it('removes snapshot when partial tail was the only batch', () => {
+      const b = new BatchBuilder(db, TEST_ASSET_ID, 5);
+      b.buildBatch([makeTransfer(100, 0), makeTransfer(100, 1)]);
+      b.buildTopLevelTree();
+      expect(db.getLatestSnapshot(TEST_ASSET_ID)).not.toBeNull();
+
+      db.tryRewindPartialTailBatch(TEST_ASSET_ID, 5);
+      expect(db.getLatestSnapshot(TEST_ASSET_ID)).toBeNull();
       expect(db.getBatchCount(TEST_ASSET_ID)).toBe(0);
     });
   });

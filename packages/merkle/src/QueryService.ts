@@ -2,7 +2,7 @@ import { Field } from 'o1js';
 import { MerkleDb } from './MerkleDb';
 import { PoseidonMerkleTree } from './PoseidonMerkleTree';
 import { WalletTransferResult, BatchProof, TopLevelProof } from './types';
-import { transferToLeafHash } from './adapters/evm';
+import { normalizeEvmAddress, transferToLeafHash } from './adapters/evm';
 
 /**
  * Simple LRU cache using Map insertion order.
@@ -63,10 +63,15 @@ export class QueryService {
     blockNumber: number,
     limit?: number
   ): WalletTransferResult {
-    const normalizedWallet = wallet.toLowerCase();
+    const normalizedWallet = normalizeEvmAddress(wallet);
 
-    // 1. Find the snapshot for this asset at or before this block
-    const snapshot = this.db.getSnapshotAtBlock(assetId, blockNumber);
+    // 1. Prefer a snapshot whose committed tip is at or before the query block (historical view).
+    // If none exist (only newer snapshots, e.g. chain moved on), use the latest snapshot and
+    // filter leaves by block below — proofs still verify against the current published root.
+    let snapshot = this.db.getSnapshotAtBlock(assetId, blockNumber);
+    if (!snapshot) {
+      snapshot = this.db.getLatestSnapshot(assetId);
+    }
     if (!snapshot) {
       return {
         wallet: normalizedWallet,
@@ -112,6 +117,10 @@ export class QueryService {
       const topLeafIndex = batchIdToIndex.get(batchId)!;
 
       for (const { leafIndex, leaf, leafHash } of leafData) {
+        if (leaf.blockNumber > blockNumber) {
+          continue;
+        }
+
         if (maxTransfers != null && transfers.length >= maxTransfers) {
           break batchLoop;
         }

@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { normalizeEvmAddress } from './adapters/evm';
 import { TransferLeaf } from './types';
 
 const DB_DIR = path.join(process.cwd(), 'data');
@@ -149,7 +150,7 @@ export class MerkleDb {
 
     const insertAll = this.db.transaction((entries: [string, number[]][]) => {
       for (const [wallet, indices] of entries) {
-        insert.run(batchId, assetId, wallet.toLowerCase(), JSON.stringify(indices));
+        insert.run(batchId, assetId, normalizeEvmAddress(wallet), JSON.stringify(indices));
       }
     });
 
@@ -200,6 +201,49 @@ export class MerkleDb {
       lastBlock: row.last_block as number,
       lastLogIndex: row.last_log_index as number,
     };
+  }
+
+  /**
+   * If the latest batch for this asset has fewer than `batchSize` leaves, remove it so the next
+   * indexer run can rebuild a full tail and merge new txs into that segment. Drops snapshots that
+   * were built including that partial batch (`batch_count >=` batch count before delete); older
+   * snapshots (smaller batch_count) are kept.
+   *
+   * Returns a cursor for GET /transactions: first row is (first_block, first_log_index), so use
+   * after_block = first_block, after_log = first_log_index - 1 (e.g. -1 when log is 0).
+   */
+  tryRewindPartialTailBatch(
+    assetId: number,
+    batchSize: number
+  ): { resumeAfterBlock: number; resumeAfterLog: number } | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, leaf_count, first_block, first_log_index FROM batches
+         WHERE asset_id = ? ORDER BY id DESC LIMIT 1`
+      )
+      .get(assetId) as
+      | { id: number; leaf_count: number; first_block: number; first_log_index: number }
+      | undefined;
+
+    if (!row || row.leaf_count >= batchSize) {
+      return null;
+    }
+
+    const batchId = row.id;
+    const batchCountBefore = this.getBatchCount(assetId);
+    const resumeAfterBlock = row.first_block;
+    const resumeAfterLog = row.first_log_index - 1;
+
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM batch_leaves WHERE batch_id = ?').run(batchId);
+      this.db.prepare('DELETE FROM wallet_index WHERE batch_id = ?').run(batchId);
+      this.db.prepare('DELETE FROM batches WHERE id = ?').run(batchId);
+      this.db
+        .prepare('DELETE FROM snapshots WHERE asset_id = ? AND batch_count >= ?')
+        .run(assetId, batchCountBefore);
+    })();
+
+    return { resumeAfterBlock, resumeAfterLog };
   }
 
   getBatchCount(assetId: number): number {
@@ -257,7 +301,7 @@ export class MerkleDb {
       .prepare(
         'SELECT batch_id, leaf_indices FROM wallet_index WHERE asset_id = ? AND wallet_address = ? ORDER BY batch_id'
       )
-      .all(assetId, wallet.toLowerCase()) as Array<{
+      .all(assetId, normalizeEvmAddress(wallet)) as Array<{
       batch_id: number;
       leaf_indices: string;
     }>;

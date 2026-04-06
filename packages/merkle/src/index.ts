@@ -13,4 +13,4 @@ export { PoseidonMerkleTree } from './PoseidonMerkleTree';
 export { BatchBuilder } from './BatchBuilder';
 export { QueryService } from './QueryService';
 export { MerkleDb } from './MerkleDb';
-export { transferToLeafHash, rawToTransferLeaf } from './adapters/evm';
+export { transferToLeafHash, rawToTransferLeaf, normalizeEvmAddress, ZERO_ADDRESS } from './adapters/evm';

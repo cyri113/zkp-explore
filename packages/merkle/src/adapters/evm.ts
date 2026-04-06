@@ -81,6 +81,29 @@ export function clearHashCache(): void {
 
 const MASK_128 = (1n << 128n) - 1n;
 
+export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+/**
+ * Canonical 0x + 40 hex (20 bytes), lowercase. Strips left ABI padding (hex longer than 40 uses the
+ * last 20 bytes). Short forms are left-padded so wallet_index keys match RPC and user queries.
+ */
+export function normalizeEvmAddress(addr: string | null | undefined): string {
+  if (addr == null || addr === '') return ZERO_ADDRESS;
+  let s = String(addr).trim().toLowerCase();
+  if (!s.startsWith('0x')) s = '0x' + s;
+  let hex = s.slice(2);
+  if (!/^[0-9a-f]+$/.test(hex)) {
+    throw new Error(`Invalid EVM address (non-hex): ${addr}`);
+  }
+  if (hex.length > 40) {
+    hex = hex.slice(-40);
+  }
+  if (hex.length < 40) {
+    hex = hex.padStart(40, '0');
+  }
+  return '0x' + hex;
+}
+
 /**
  * Convert raw indexer API JSON to a TransferLeaf.
  * Handles the Alchemy-style JSON format stored in the indexer DB.
@@ -96,8 +119,8 @@ export function rawToTransferLeaf(raw: Record<string, unknown>): TransferLeaf {
   // console.error(`Processing transaction ${raw.hash} | block ${blockNumber} | log ${logIndex}`);
 
   return {
-    from: ((raw.from as string) || '0x0000000000000000000000000000000000000000').toLowerCase(),
-    to: ((raw.to as string) || '0x0000000000000000000000000000000000000000').toLowerCase(),
+    from: normalizeEvmAddress((raw.from as string) || ZERO_ADDRESS),
+    to: normalizeEvmAddress((raw.to as string) || ZERO_ADDRESS),
     value: String(raw.value ?? '0'),
     txHash: (raw.hash as string).toLowerCase(),
     logIndex,
@@ -117,8 +140,8 @@ export function rawToTransferLeaf(raw: Record<string, unknown>): TransferLeaf {
  * which called Poseidon per-character.
  */
 export function transferToLeafHash(leaf: TransferLeaf): Field {
-  const fromField = Field(BigInt(leaf.from));
-  const toField = Field(BigInt(leaf.to));
+  const fromField = Field(BigInt(normalizeEvmAddress(leaf.from)));
+  const toField = Field(BigInt(normalizeEvmAddress(leaf.to)));
 
   // Value may be a decimal string, hex string, or "0"
   const valueBigInt = leaf.value.startsWith('0x')

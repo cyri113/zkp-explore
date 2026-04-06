@@ -96,6 +96,10 @@ export class BatchBuilder {
   /**
    * Fetch all transactions for this asset from the indexer API, build batch trees,
    * wallet indices, and a top-level snapshot. Supports incremental builds.
+   *
+   * If the last stored batch is partial (`leaf_count` < `batchSize`), it is removed first and
+   * snapshots that included it are dropped; streaming resumes from that batch’s first transfer so
+   * new indexer rows merge into the tail before the next published top-level snapshot.
    */
   async buildFromIndexer(
     indexerUrl: string,
@@ -109,10 +113,20 @@ export class BatchBuilder {
     const concurrency = Math.max(1, this.batchComputeConcurrency);
     const limit = pLimit(concurrency);
 
-    // Resume from last batch for this asset if exists
-    const lastBatch = this.db.getLastBatch(this.assetId);
-    let afterBlock = lastBatch?.lastBlock ?? -1;
-    let afterLog = lastBatch?.lastLogIndex ?? -1;
+    const rewind = this.db.tryRewindPartialTailBatch(this.assetId, this.batchSize);
+    let afterBlock: number;
+    let afterLog: number;
+    if (rewind != null) {
+      console.error(
+        `[Build] Dropped partial tail batch; re-fetching from block ${rewind.resumeAfterBlock} log ${rewind.resumeAfterLog} (inclusive first leaf of former tail)`
+      );
+      afterBlock = rewind.resumeAfterBlock;
+      afterLog = rewind.resumeAfterLog;
+    } else {
+      const lastBatch = this.db.getLastBatch(this.assetId);
+      afterBlock = lastBatch?.lastBlock ?? -1;
+      afterLog = lastBatch?.lastLogIndex ?? -1;
+    }
     const existingBatches = this.db.getBatchCount(this.assetId);
 
     const countRes = (await fetchJson(client, `/transactions/count`, { asset_id: this.assetId })) as {

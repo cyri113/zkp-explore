@@ -1,6 +1,6 @@
 import { PoseidonMerkleTree } from './PoseidonMerkleTree';
 import { TransferLeaf } from './types';
-import { transferToLeafHash } from './adapters/evm';
+import { normalizeEvmAddress, transferToLeafHash } from './adapters/evm';
 
 export type PreparedBatch = {
   transfers: TransferLeaf[];
@@ -28,21 +28,21 @@ export function computeBatchArtifacts(transfers: TransferLeaf[]): PreparedBatch 
   const walletMap = new Map<string, number[]>();
   for (let i = 0; i < transfers.length; i++) {
     const t = transfers[i];
-    const fromLower = t.from.toLowerCase();
-    const toLower = t.to.toLowerCase();
+    const fromKey = normalizeEvmAddress(t.from);
+    const toKey = normalizeEvmAddress(t.to);
 
-    let fromIndices = walletMap.get(fromLower);
+    let fromIndices = walletMap.get(fromKey);
     if (!fromIndices) {
       fromIndices = [];
-      walletMap.set(fromLower, fromIndices);
+      walletMap.set(fromKey, fromIndices);
     }
     fromIndices.push(i);
 
-    if (toLower !== fromLower) {
-      let toIndices = walletMap.get(toLower);
+    if (toKey !== fromKey) {
+      let toIndices = walletMap.get(toKey);
       if (!toIndices) {
         toIndices = [];
-        walletMap.set(toLower, toIndices);
+        walletMap.set(toKey, toIndices);
       }
       toIndices.push(i);
     }

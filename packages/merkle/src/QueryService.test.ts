@@ -4,7 +4,7 @@ import { BatchBuilder } from './BatchBuilder';
 import { QueryService } from './QueryService';
 import { PoseidonMerkleTree } from './PoseidonMerkleTree';
 import { TransferLeaf } from './types';
-import { transferToLeafHash } from './adapters/evm';
+import { normalizeEvmAddress, rawToTransferLeaf, transferToLeafHash } from './adapters/evm';
 
 const TEST_ASSET_ID = 1;
 
@@ -15,8 +15,8 @@ function makeTransfer(
   to = '0xbbb'
 ): TransferLeaf {
   return {
-    from: from.toLowerCase(),
-    to: to.toLowerCase(),
+    from: normalizeEvmAddress(from),
+    to: normalizeEvmAddress(to),
     value: '1000',
     txHash: `0x${'0'.repeat(60)}${blockNumber.toString(16).padStart(4, '0')}`,
     logIndex,
@@ -61,7 +61,7 @@ describe('QueryService', () => {
 
     const result = query.getWalletTransfersAtBlock(TEST_ASSET_ID, '0xaaa', 300);
 
-    expect(result.wallet).toBe('0xaaa');
+    expect(result.wallet).toBe(normalizeEvmAddress('0xaaa'));
     expect(result.snapshotRoot).toBeTruthy();
     // 0xaaa appears in: batch1 transfers 0,1 (as from), batch2 transfers 0,1 (as to)
     expect(result.transfers.length).toBe(4);
@@ -99,6 +99,19 @@ describe('QueryService', () => {
     expect(result.transfers[0].leaf.blockNumber).toBe(100);
   });
 
+  it('uses latest snapshot when all snapshots are newer than query block, filters leaves', () => {
+    builder.buildBatch([makeTransfer(100, 0, '0xaaa', '0xbbb')]);
+    builder.buildBatch([makeTransfer(300, 0, '0xaaa', '0xccc')]);
+    builder.buildTopLevelTree();
+
+    const result = query.getWalletTransfersAtBlock(TEST_ASSET_ID, '0xaaa', 150);
+
+    expect(result.snapshotRoot).toBeTruthy();
+    expect(result.batchCount).toBe(2);
+    expect(result.transfers.length).toBe(1);
+    expect(result.transfers[0].leaf.blockNumber).toBe(100);
+  });
+
   it('returns empty for unknown wallet', () => {
     buildTestData();
 
@@ -122,6 +135,29 @@ describe('QueryService', () => {
     const upper = query.getWalletTransfersAtBlock(TEST_ASSET_ID, '0xAAA', 300);
 
     expect(lower.transfers.length).toBe(upper.transfers.length);
+  });
+
+  it('normalizes 32-byte padded from in raw JSON so wallet query matches short address', () => {
+    const vitalik = '0xd8da6bf26964af9d7eed9e03e53415d37aa96045';
+    const paddedFrom = `0x${'0'.repeat(24)}${vitalik.slice(2)}`;
+    expect(paddedFrom.length).toBe(66);
+
+    const leaf = rawToTransferLeaf({
+      blockNum: '0x64',
+      uniqueId: 'eth:0',
+      hash: '0x' + '3'.repeat(64),
+      from: paddedFrom,
+      to: '0xbbb',
+      value: '1',
+      metadata: {},
+    });
+    expect(leaf.from).toBe(normalizeEvmAddress(vitalik));
+
+    builder.buildBatch([leaf]);
+    builder.buildTopLevelTree();
+
+    const result = query.getWalletTransfersAtBlock(TEST_ASSET_ID, vitalik, 200);
+    expect(result.transfers.length).toBe(1);
   });
 
   it('isolates queries by asset', () => {
