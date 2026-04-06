@@ -1,0 +1,21 @@
+{
+  "name": "@zkp/zkp",
+  "version": "0.0.1",
+  "private": true,
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "jest --runInBand",
+    "prove": "ts-node src/cli.ts prove",
+    "verify": "ts-node src/cli.ts verify"
+  },
+  "dependencies": {
+    "@zkp/merkle": "workspace:*",
+    "o1js": "^2.14.0",
+    "yargs": "^18.0.0"
+  },
+  "devDependencies": {
+    "@types/yargs": "^17.0.35"
+  }
+}

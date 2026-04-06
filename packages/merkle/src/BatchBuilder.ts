@@ -1,7 +1,7 @@
 import { Field } from 'o1js';
 import { MerkleDb } from './MerkleDb';
 import { PoseidonMerkleTree } from './PoseidonMerkleTree';
-import { TransferLeaf, BATCH_SIZE, INITIAL_TOP_LEVEL_HEIGHT } from './types';
+import { TransferLeaf, BATCH_SIZE, TOP_TREE_HEIGHT } from './types';
 import { rawToTransferLeaf } from './adapters/evm';
 import axios, { AxiosInstance } from 'axios';
 import pLimit from 'p-limit';
@@ -281,11 +281,15 @@ export class BatchBuilder {
       throw new Error('No batches to build top-level tree from');
     }
 
-    // Dynamic height: grow as needed
-    const height = Math.max(
-      INITIAL_TOP_LEVEL_HEIGHT,
-      Math.ceil(Math.log2(Math.max(batchCount, 2))) + 1
-    );
+    // Fixed height required for circuit compatibility (TOP_TREE_HEIGHT).
+    // Capacity = 2^(TOP_TREE_HEIGHT - 1) batches.
+    const capacity = 1 << (TOP_TREE_HEIGHT - 1);
+    if (batchCount > capacity) {
+      throw new Error(
+        `Top-level tree capacity exceeded: ${batchCount} batches > ${capacity} (TOP_TREE_HEIGHT=${TOP_TREE_HEIGHT})`
+      );
+    }
+    const height = TOP_TREE_HEIGHT;
 
     const rootFields = batchRoots.map((b) => Field(BigInt(b.root)));
     const tree = PoseidonMerkleTree.fromLeaves(rootFields, height);

@@ -60,3 +60,17 @@ export interface WalletTransferResult {
 
 export const BATCH_SIZE = 10_000;
 export const INITIAL_TOP_LEVEL_HEIGHT = 8;
+
+/**
+ * Fixed height for batch Merkle trees so every batch proof has the same
+ * witness length. Required for circuit compatibility: o1js `MerkleWitness(N)`
+ * needs a compile-time constant. 2^14 = 16384 ≥ BATCH_SIZE = 10_000.
+ */
+export const BATCH_TREE_HEIGHT = 15;
+
+/**
+ * Fixed height for the top-level Merkle tree (tree of batch roots). Also
+ * required to be a compile-time constant for circuit compatibility.
+ * 2^15 = 32_768 batches × BATCH_SIZE = up to ~328M leaves per snapshot.
+ */
+export const TOP_TREE_HEIGHT = 16;

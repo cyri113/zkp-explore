@@ -2,7 +2,7 @@ import { Field, Poseidon } from 'o1js';
 import { MerkleDb } from './MerkleDb';
 import { BatchBuilder, resolveIndexerFetchPageSize } from './BatchBuilder';
 import { PoseidonMerkleTree } from './PoseidonMerkleTree';
-import { TransferLeaf } from './types';
+import { TransferLeaf, BATCH_TREE_HEIGHT, TOP_TREE_HEIGHT } from './types';
 import { normalizeEvmAddress, transferToLeafHash } from './adapters/evm';
 
 const TEST_ASSET_ID = 1;
@@ -207,9 +207,9 @@ describe('BatchBuilder', () => {
       const transfers = [makeTransfer(100, 0), makeTransfer(100, 1)];
       const { root } = builder.buildBatch(transfers);
 
-      // Manually hash and build
+      // Manually hash and build (use same fixed height as BatchBuilder)
       const hashes = transfers.map(transferToLeafHash);
-      const manualTree = PoseidonMerkleTree.fromLeaves(hashes);
+      const manualTree = PoseidonMerkleTree.fromLeaves(hashes, BATCH_TREE_HEIGHT);
 
       expect(root).toBe(manualTree.getRoot().toString());
     });
@@ -239,7 +239,7 @@ describe('BatchBuilder', () => {
 
       const batchRoots = db.getAllBatchRoots(TEST_ASSET_ID);
       const rootFields = batchRoots.map((b) => Field(BigInt(b.root)));
-      const manualTree = PoseidonMerkleTree.fromLeaves(rootFields, 8);
+      const manualTree = PoseidonMerkleTree.fromLeaves(rootFields, TOP_TREE_HEIGHT);
 
       const { root } = builder.buildTopLevelTree();
       expect(root).toBe(manualTree.getRoot().toString());

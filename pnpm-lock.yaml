@@ -77,6 +77,22 @@ importers:
         specifier: ^17.0.35
         version: 17.0.35
 
+  packages/zkp:
+    dependencies:
+      '@zkp/merkle':
+        specifier: workspace:*
+        version: link:../merkle
+      o1js:
+        specifier: ^2.14.0
+        version: 2.14.0
+      yargs:
+        specifier: ^18.0.0
+        version: 18.0.0
+    devDependencies:
+      '@types/yargs':
+        specifier: ^17.0.35
+        version: 17.0.35
+
 packages:
 
   '@alch/alchemy-sdk@1.2.0':

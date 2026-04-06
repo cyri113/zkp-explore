@@ -8,6 +8,8 @@
     "merkle": "ts-node packages/merkle/src/server.ts",
     "merkle:build": "ts-node packages/merkle/src/cli.ts build",
     "merkle:query": "ts-node packages/merkle/src/cli.ts query",
+    "zkp:prove": "ts-node packages/zkp/src/cli.ts prove",
+    "zkp:verify": "ts-node packages/zkp/src/cli.ts verify",
     "build": "tsc -b",
     "clean": "pnpm -r run clean"
   },

@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "packages/indexer" },
-    { "path": "packages/merkle" }
+    { "path": "packages/merkle" },
+    { "path": "packages/zkp" }
   ]
 }

@@ -1,5 +1,5 @@
 import { PoseidonMerkleTree } from './PoseidonMerkleTree';
-import { TransferLeaf } from './types';
+import { TransferLeaf, BATCH_TREE_HEIGHT } from './types';
 import { normalizeEvmAddress, transferToLeafHash } from './adapters/evm';
 
 export type PreparedBatch = {
@@ -22,7 +22,7 @@ export function computeBatchArtifacts(transfers: TransferLeaf[]): PreparedBatch 
   }
 
   const leafHashes = transfers.map((t) => transferToLeafHash(t));
-  const tree = PoseidonMerkleTree.fromLeaves(leafHashes);
+  const tree = PoseidonMerkleTree.fromLeaves(leafHashes, BATCH_TREE_HEIGHT);
   const root = tree.getRoot().toString();
 
   const walletMap = new Map<string, number[]>();
